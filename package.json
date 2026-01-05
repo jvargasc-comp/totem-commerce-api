@@ -1,7 +1,7 @@
 {
-  "name": "nestjs-prisma-client-starter",
+  "name": "totem-commerce-api",
   "version": "0.0.1",
-  "description": "NestJS Prisma Client Starter Project",
+  "description": "totem commerce api",
   "author": "Marc Stammerjohann",
   "license": "MIT",
   "keywords": [
@@ -14,10 +14,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/fivethree-team/nestjs-prisma-client-example.git"
+    "url": "https://github.com/jvargasc-comp/totem-commerce-api"
   },
   "bugs": {
-    "url": "https://github.com/fivethree-team/nestjs-prisma-client-example/issues"
+    "url": "https://github.com/jvargasc-comp/totem-commerce-api/issues"
   },
   "scripts": {
     "build": "nest build",
@@ -52,7 +52,6 @@
   },
   "dependencies": {
     "@apollo/server": "^4.7.5",
-    "@devoxa/prisma-relay-cursor-connection": "2.2.3",
     "@nestjs/apollo": "12.0.7",
     "@nestjs/common": "10.1.0",
     "@nestjs/config": "3.0.0",
@@ -62,14 +61,14 @@
     "@nestjs/passport": "10.0.0",
     "@nestjs/platform-express": "10.1.0",
     "@nestjs/swagger": "7.1.2",
-    "@prisma/client": "^5.0.0",
+    "@prisma/client": "^6.19.0",
     "bcrypt": "5.1.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.13.2",
     "graphql": "16.7.1",
     "graphql-scalars": "1.22.2",
     "graphql-subscriptions": "2.0.0",
-    "nestjs-prisma": "0.22.0-dev.0",
+    "nestjs-prisma": "^0.26.0",
     "passport": "0.6.0",
     "passport-jwt": "4.0.1",
     "reflect-metadata": "0.1.13",
@@ -95,7 +94,7 @@
     "eslint-plugin-prettier": "^4.2.1",
     "jest": "29.6.1",
     "prettier": "2.8.8",
-    "prisma": "5.0.0",
+    "prisma": "^6.19.0",
     "prisma-dbml-generator": "0.11.0-dev.0",
     "supertest": "6.3.3",
     "ts-jest": "29.1.1",
