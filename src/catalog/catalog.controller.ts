@@ -11,10 +11,7 @@ export class CatalogController {
   }
 
   @Get('products')
-  products(
-    @Query('q') q?: string,
-    @Query('categoryId') categoryId?: string,
-  ) {
+  products(@Query('q') q?: string, @Query('categoryId') categoryId?: string) {
     return this.catalog.listProducts(q, categoryId);
   }
 }
