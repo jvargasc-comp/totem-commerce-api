@@ -3,12 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  Prisma,
-  PaymentStatus,
-  PaymentProvider,
-  OrderStatus,
-} from '@prisma/client';
+import { PaymentStatus, PaymentProvider, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentIntentDto } from './dto/create-intent.dto';
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto';
@@ -62,16 +57,25 @@ export class PaymentsService {
 
   async confirm(dto: ConfirmPaymentDto) {
     // Idempotencia: si ya está confirmado, solo devuélvelo
-    const existing = await this.prisma.payment.findUnique({ where: { id: dto.paymentId } });
+    const existing = await this.prisma.payment.findUnique({
+      where: { id: dto.paymentId },
+    });
     if (!existing) throw new NotFoundException('Payment not found');
 
     if (existing.status === PaymentStatus.CONFIRMED) {
-      const order = await this.prisma.order.findUnique({ where: { id: existing.orderId } });
+      const order = await this.prisma.order.findUnique({ 
+        where: { id: existing.orderId } 
+      });
       return { payment: existing, order };
     }
 
-    if (existing.status === PaymentStatus.CANCELLED || existing.status === PaymentStatus.FAILED) {
-      throw new BadRequestException(`Cannot confirm a ${existing.status} payment`);
+    if (
+      existing.status === PaymentStatus.CANCELLED ||
+      existing.status === PaymentStatus.FAILED
+    ) {
+      throw new BadRequestException(
+        `Cannot confirm a ${existing.status} payment`,
+      );
     }
 
     // Transacción: confirmar pago + marcar orden como CONFIRMED
