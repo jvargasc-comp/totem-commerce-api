@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'nestjs-prisma';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateOrderDto, FulfillmentType } from './dto/create-order.dto';
 
 @Injectable()
 export class OrdersService {
@@ -16,19 +16,9 @@ export class OrdersService {
       throw new BadRequestException('items is required');
     }
 
-    // 1) Validar ventana de entrega existe
-    const window = await this.prisma.deliveryWindow.findUnique({
-      where: { id: dto.deliveryWindowId },
-      include: { _count: { select: { deliveries: true } } },
-    });
-    if (!window) throw new NotFoundException('DeliveryWindow not found');
+    const fulfillment = dto.fulfillmentType ?? FulfillmentType.PICKUP;
 
-    // 2) Validar capacidad (simple)
-    if (window._count.deliveries >= window.capacity) {
-      throw new ConflictException('DeliveryWindow is full');
-    }
-
-    // 3) Traer productos y validar existencia/activos
+    // 1) Validar productos y existencia/activos
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds }, isActive: true },
@@ -41,7 +31,7 @@ export class OrdersService {
 
     const priceById = new Map(products.map((p) => [p.id, p.priceCents]));
 
-    // 4) Calcular totales en backend
+    // 2) Calcular totales
     const itemsComputed = dto.items.map((i) => {
       const unitCents = priceById.get(i.productId);
       if (unitCents == null) throw new BadRequestException('Invalid product');
@@ -60,11 +50,40 @@ export class OrdersService {
       0,
     );
 
-    // Delivery cost simple (puedes poner lógica por zona luego)
-    const deliveryCents = 0;
+    // Delivery cost simple (luego por zona)
+    let deliveryCents = 0;
+
+    // 3) DELIVERY: validar ventana + capacidad + address
+    let window: { id: string } | null = null;
+
+    if (fulfillment === FulfillmentType.DELIVERY) {
+      if (!dto.delivery) {
+        throw new BadRequestException('delivery is required for DELIVERY');
+      }
+
+      const { windowId } = dto.delivery;
+
+      const foundWindow = await this.prisma.deliveryWindow.findUnique({
+        where: { id: windowId },
+        include: { _count: { select: { deliveries: true } } },
+      });
+
+      if (!foundWindow) throw new NotFoundException('DeliveryWindow not found');
+
+      if (foundWindow._count.deliveries >= foundWindow.capacity) {
+        throw new ConflictException('DeliveryWindow is full');
+      }
+
+      window = { id: foundWindow.id };
+
+      // Si luego deseas fees por zona, aquí:
+      // deliveryCents = calculateFee(dto.delivery.address.zone, dto.delivery.address.city)
+      deliveryCents = 0;
+    }
+
     const totalCents = subtotalCents + deliveryCents;
 
-    // 5) Crear todo en una transacción
+    // 4) Crear todo en transacción
     const result = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
         data: {
@@ -73,6 +92,7 @@ export class OrdersService {
           subtotalCents,
           deliveryCents,
           totalCents,
+
           items: {
             create: itemsComputed.map((i) => ({
               productId: i.productId,
@@ -81,21 +101,27 @@ export class OrdersService {
               lineCents: i.lineCents,
             })),
           },
-          address: {
-            create: {
-              line1: dto.address.line1,
-              reference: dto.address.reference,
-              city: dto.address.city,
-              zone: dto.address.zone,
-              lat: dto.address.lat,
-              lng: dto.address.lng,
-            },
-          },
-          delivery: {
-            create: {
-              windowId: window.id,
-            },
-          },
+
+          ...(fulfillment === FulfillmentType.DELIVERY
+            ? {
+                address: {
+                  create: {
+                    line1: dto.delivery.address.line1,
+                    reference: dto.delivery.address.reference,
+                    city: dto.delivery.address.city,
+                    zone: dto.delivery.address.zone,
+                    // tu schema actual no tiene postalCode/notes, así que no los guardo aquí
+                    lat: dto.delivery.address.lat,
+                    lng: dto.delivery.address.lng,
+                  },
+                },
+                delivery: {
+                  create: {
+                    windowId: window!.id,
+                  },
+                },
+              }
+            : {}),
         },
         include: {
           items: true,
@@ -122,6 +148,7 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
     return order;
   }
+
   async getById(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -141,6 +168,9 @@ export class OrdersService {
     return { ...order, payments };
   }
 
+  /**
+   * ✅ Recibo: ahora incluye address y delivery.window
+   */
   async getReceipt(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -157,12 +187,34 @@ export class OrdersService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // delivery display (si existe)
+    const delivery = order.delivery?.window
+      ? {
+          windowId: order.delivery.window.id,
+          date: order.delivery.window.date,
+          startTime: order.delivery.window.startTime,
+          endTime: order.delivery.window.endTime,
+        }
+      : null;
+
+    const address = order.address
+      ? {
+          line1: order.address.line1,
+          reference: order.address.reference ?? undefined,
+          city: order.address.city,
+          zone: order.address.zone ?? undefined,
+          lat: order.address.lat ?? undefined,
+          lng: order.address.lng ?? undefined,
+        }
+      : null;
+
     return {
       orderId: order.id,
       createdAt: order.createdAt,
       status: order.status,
       customerName: order.customerName,
       customerPhone: order.customerPhone,
+
       items: order.items.map((it) => ({
         productId: it.productId,
         name: it.product.name,
@@ -170,9 +222,15 @@ export class OrdersService {
         unitCents: it.unitCents,
         lineCents: it.lineCents,
       })),
+
       subtotalCents: order.subtotalCents,
       deliveryCents: order.deliveryCents,
       totalCents: order.totalCents,
+
+      // ✅ NUEVO
+      address,
+      delivery,
+
       payment: lastConfirmedPayment
         ? {
             id: lastConfirmedPayment.id,
@@ -183,9 +241,11 @@ export class OrdersService {
             externalRef: lastConfirmedPayment.externalRef,
           }
         : null,
+
       qrString: `ORDER:${order.id}`,
     };
   }
+
   async getStatus(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -194,6 +254,7 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
     return { orderId: order.id, status: order.status };
   }
+
   async cancel(orderId: string) {
     return this.prisma.order.update({
       where: { id: orderId },

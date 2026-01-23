@@ -15,6 +15,7 @@ import { DeliveryModule } from './delivery/delivery.module';
     DeliveryModule,
     OrdersModule,
     PrismaModule,
+    DeliveryModule,
   ],
 })
 export class AppModule {}

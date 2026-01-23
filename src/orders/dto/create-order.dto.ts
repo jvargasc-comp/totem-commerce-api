@@ -1,25 +1,37 @@
 import {
+  ArrayMinSize,
   IsArray,
+  IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Min,
+  MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export enum FulfillmentType {
+  PICKUP = 'PICKUP',
+  DELIVERY = 'DELIVERY',
+}
 
 export class CreateOrderItemDto {
   @IsString()
   @IsNotEmpty()
   productId!: string;
 
+  @IsInt()
   @Min(1)
   qty!: number;
 }
 
-export class CreateOrderAddressDto {
+export class DeliveryAddressDto {
   @IsString()
-  @IsNotEmpty()
+  @MinLength(5)
   line1!: string;
 
   @IsOptional()
@@ -27,12 +39,20 @@ export class CreateOrderAddressDto {
   reference?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @MinLength(2)
   city!: string;
 
   @IsOptional()
   @IsString()
   zone?: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 
   @IsOptional()
   lat?: number;
@@ -41,26 +61,52 @@ export class CreateOrderAddressDto {
   lng?: number;
 }
 
-export class CreateOrderDto {
+export class DeliveryInfoDto {
   @IsString()
   @IsNotEmpty()
-  customerName!: string;
-
-  // Si quieres más permisivo (Ecuador), cambia a IsString()
-  @IsString()
-  @IsNotEmpty()
-  customerPhone!: string;
+  storeId!: string;
 
   @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date must be YYYY-MM-DD' })
+  date!: string;
+
+  @IsString()
   @IsNotEmpty()
-  deliveryWindowId!: string;
+  windowId!: string;
 
   @ValidateNested()
-  @Type(() => CreateOrderAddressDto)
-  address!: CreateOrderAddressDto;
+  @Type(() => DeliveryAddressDto)
+  address!: DeliveryAddressDto;
+}
+
+export class CreateOrderDto {
+  @IsString()
+  @MinLength(2)
+  customerName!: string;
+
+  // Ecuador móvil: 09 + 8 dígitos
+  @IsString()
+  @Matches(/^09\d{8}$/, {
+    message: 'customerPhone must be Ecuador mobile (09XXXXXXXX)',
+  })
+  customerPhone!: string;
 
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items!: CreateOrderItemDto[];
+
+  @IsOptional()
+  @IsEnum(FulfillmentType)
+  fulfillmentType?: FulfillmentType;
+
+  @ValidateIf(
+    (o: CreateOrderDto) =>
+      (o.fulfillmentType ?? FulfillmentType.PICKUP) ===
+      FulfillmentType.DELIVERY,
+  )
+  @ValidateNested()
+  @Type(() => DeliveryInfoDto)
+  delivery!: DeliveryInfoDto;
 }

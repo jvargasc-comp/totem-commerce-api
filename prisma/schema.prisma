@@ -79,6 +79,8 @@ model Address {
   reference String?
   city      String
   zone      String?
+  postalCode String?
+  notes      String?
   lat       Float?
   lng       Float?
 }

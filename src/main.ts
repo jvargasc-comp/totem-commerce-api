@@ -15,7 +15,13 @@ async function bootstrap() {
 
   // Validation
   //app.useGlobalPipes(new ValidationPipe());
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
   // enable shutdown hook
   app.enableShutdownHooks();
