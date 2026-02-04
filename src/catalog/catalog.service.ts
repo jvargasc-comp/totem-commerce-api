@@ -19,7 +19,10 @@ export class CatalogService {
         ...(q ? { name: { contains: q } } : {}),
         ...(categoryId ? { categoryId } : {}),
       },
-      include: { images: true, category: true },
+      include: {
+        category: true,
+        images: { orderBy: { sortOrder: 'asc' } }, // ✅ portada estable
+      },
       orderBy: { name: 'asc' },
       take: 100,
     });

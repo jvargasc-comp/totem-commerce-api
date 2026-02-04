@@ -24,6 +24,10 @@ model Product {
   brand       String?
   priceCents  Int
   isActive    Boolean  @default(true)
+
+  // ✅ NUEVO: si se puede entregar a domicilio (DHL simulado)
+  isDeliverable Boolean @default(true)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -44,15 +48,17 @@ model ProductImage {
 }
 
 model Order {
-  id            String      @id @default(cuid())
-  status        OrderStatus @default(CREATED)
-  customerName  String
-  customerPhone String
-  subtotalCents Int
-  deliveryCents Int         @default(0)
-  totalCents    Int
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id              String      @id @default(cuid())
+  status          OrderStatus @default(CREATED)
+  customerName    String
+  customerPhone   String
+  subtotalCents   Int
+  deliveryCents   Int         @default(0)
+  totalCents      Int
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  shippingCents   Int         @default(0)
+  shippingProvider String?    // "DHL_SIMULATED" por ahora
 
   items    OrderItem[]
   address  Address?
@@ -72,17 +78,17 @@ model OrderItem {
 }
 
 model Address {
-  id        String  @id @default(cuid())
-  order     Order   @relation(fields: [orderId], references: [id])
-  orderId   String  @unique
-  line1     String
-  reference String?
-  city      String
-  zone      String?
+  id         String  @id @default(cuid())
+  order      Order   @relation(fields: [orderId], references: [id])
+  orderId    String  @unique
+  line1      String
+  reference  String?
+  city       String
+  zone       String?
   postalCode String?
   notes      String?
-  lat       Float?
-  lng       Float?
+  lat        Float?
+  lng        Float?
 }
 
 model DeliveryWindow {
@@ -95,6 +101,8 @@ model DeliveryWindow {
   updatedAt DateTime @updatedAt
 
   deliveries Delivery[]
+
+  @@unique([date, startTime, endTime])
 }
 
 model Delivery {

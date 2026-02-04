@@ -22,11 +22,30 @@ export class OrdersService {
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds }, isActive: true },
-      select: { id: true, priceCents: true, name: true, isActive: true },
+      select: {
+        id: true,
+        priceCents: true,
+        name: true,
+        isActive: true,
+        isDeliverable: true,
+      },
     });
 
     if (products.length !== productIds.length) {
       throw new BadRequestException('Some products are invalid or inactive');
+    }
+
+    // ✅ Regla negocio: si es DELIVERY, todos deben ser deliverables
+    if (fulfillment === FulfillmentType.DELIVERY) {
+      const nonDeliverables = products.filter((p) => p.isDeliverable === false);
+      if (nonDeliverables.length > 0) {
+        throw new BadRequestException({
+          message: 'Some items are not eligible for delivery',
+          code: 'NON_DELIVERABLE_ITEMS',
+          nonDeliverableProductIds: nonDeliverables.map((p) => p.id),
+          nonDeliverableProductNames: nonDeliverables.map((p) => p.name),
+        });
+      }
     }
 
     const priceById = new Map(products.map((p) => [p.id, p.priceCents]));
@@ -46,11 +65,9 @@ export class OrdersService {
     });
 
     const subtotalCents = itemsComputed.reduce(
-      (acc, x) => acc + x.lineCents,
-      0,
-    );
+      (acc, x) => acc + x.lineCents,0);
 
-    // Delivery cost simple (luego por zona)
+    // (legacy) deliveryCents lo dejamos para compat, por ahora 0
     let deliveryCents = 0;
 
     // 3) DELIVERY: validar ventana + capacidad + address
@@ -76,12 +93,41 @@ export class OrdersService {
 
       window = { id: foundWindow.id };
 
-      // Si luego deseas fees por zona, aquí:
-      // deliveryCents = calculateFee(dto.delivery.address.zone, dto.delivery.address.city)
+      // deliveryCents (legacy) lo dejamos 0
       deliveryCents = 0;
     }
 
-    const totalCents = subtotalCents + deliveryCents;
+    // ✅ Shipping (DHL simulado) + validaciones mínimas
+    const rawShippingCents =
+      fulfillment === FulfillmentType.DELIVERY ? (dto.shippingCents ?? 0) : 0;
+
+    if (fulfillment === FulfillmentType.DELIVERY) {
+      if (!Number.isInteger(rawShippingCents) || rawShippingCents < 0) {
+        throw new BadRequestException({
+          message: 'Invalid shippingCents',
+          code: 'INVALID_SHIPPING',
+        });
+      }
+    }
+
+    const shippingCents = rawShippingCents;
+
+    const rawProvider =
+      fulfillment === FulfillmentType.DELIVERY
+        ? (dto.shippingProvider ?? 'DHL_SIMULATED')
+        : null;
+
+    // ✅ por ahora, restringimos a lo que soporta el MVP
+    const allowedProviders = new Set(['DHL_SIMULATED']);
+    const shippingProvider =
+      fulfillment === FulfillmentType.DELIVERY
+        ? allowedProviders.has(rawProvider as string)
+          ? (rawProvider as string)
+          : 'DHL_SIMULATED'
+        : null;
+
+    // ✅ Total debe incluir shipping
+    const totalCents = subtotalCents + shippingCents;
 
     // 4) Crear todo en transacción
     const result = await this.prisma.$transaction(async (tx) => {
@@ -91,6 +137,8 @@ export class OrdersService {
           customerPhone: dto.customerPhone,
           subtotalCents,
           deliveryCents,
+          shippingCents,
+          shippingProvider,
           totalCents,
 
           items: {
@@ -110,7 +158,8 @@ export class OrdersService {
                     reference: dto.delivery.address.reference,
                     city: dto.delivery.address.city,
                     zone: dto.delivery.address.zone,
-                    // tu schema actual no tiene postalCode/notes, así que no los guardo aquí
+                    postalCode: dto.delivery.address.postalCode,
+                    notes: dto.delivery.address.notes,
                     lat: dto.delivery.address.lat,
                     lng: dto.delivery.address.lng,
                   },
@@ -169,7 +218,7 @@ export class OrdersService {
   }
 
   /**
-   * ✅ Recibo: ahora incluye address y delivery.window
+   * ✅ Recibo: incluye address, delivery.window + shipping
    */
   async getReceipt(orderId: string) {
     const order = await this.prisma.order.findUnique({
@@ -187,7 +236,6 @@ export class OrdersService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // delivery display (si existe)
     const delivery = order.delivery?.window
       ? {
           windowId: order.delivery.window.id,
@@ -203,6 +251,8 @@ export class OrdersService {
           reference: order.address.reference ?? undefined,
           city: order.address.city,
           zone: order.address.zone ?? undefined,
+          postalCode: order.address.postalCode ?? undefined,
+          notes: order.address.notes ?? undefined,
           lat: order.address.lat ?? undefined,
           lng: order.address.lng ?? undefined,
         }
@@ -225,9 +275,12 @@ export class OrdersService {
 
       subtotalCents: order.subtotalCents,
       deliveryCents: order.deliveryCents,
+
+      shippingCents: order.shippingCents,
+      shippingProvider: order.shippingProvider ?? undefined,
+
       totalCents: order.totalCents,
 
-      // ✅ NUEVO
       address,
       delivery,
 

@@ -109,4 +109,13 @@ export class CreateOrderDto {
   @ValidateNested()
   @Type(() => DeliveryInfoDto)
   delivery!: DeliveryInfoDto;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  shippingCents?: number;
+
+  @IsOptional()
+  @IsString()
+  shippingProvider?: string;
 }
