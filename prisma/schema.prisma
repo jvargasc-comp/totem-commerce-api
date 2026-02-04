@@ -79,16 +79,23 @@ model OrderItem {
 
 model Address {
   id         String  @id @default(cuid())
-  order      Order   @relation(fields: [orderId], references: [id])
   orderId    String  @unique
+  order      Order   @relation(fields: [orderId], references: [id])
+
   line1      String
   reference  String?
-  city       String
-  zone       String?
-  postalCode String?
+  city       String?
+  state      String?   // ✅ NUEVO
+  postalCode String?  // (lo usamos como zipcode)
+  phone      String?   // ✅ NUEVO (teléfono de la dirección / receptor)
+
+  zone       String?  // si lo usabas antes como barrio, lo puedes mantener opcional
   notes      String?
+
   lat        Float?
   lng        Float?
+
+  createdAt  DateTime @default(now())
 }
 
 model DeliveryWindow {

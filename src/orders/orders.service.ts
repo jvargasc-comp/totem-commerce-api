@@ -7,6 +7,14 @@ import {
 import { PrismaService } from 'nestjs-prisma';
 import { CreateOrderDto, FulfillmentType } from './dto/create-order.dto';
 
+function computeShippingCentsByItemsCount(itemsCount: number) {
+  if (!Number.isInteger(itemsCount) || itemsCount < 1) return 0;
+
+  // 1..10 => $10, 11+ => $10 + $1 por cada producto adicional desde el 11
+  if (itemsCount <= 10) return 1000;
+  return 1000 + (itemsCount - 10) * 100;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -65,7 +73,10 @@ export class OrdersService {
     });
 
     const subtotalCents = itemsComputed.reduce(
-      (acc, x) => acc + x.lineCents,0);
+      (acc, x) => acc + x.lineCents,
+      0,
+    );
+    const itemsCount = itemsComputed.reduce((acc, x) => acc + x.qty, 0);
 
     // (legacy) deliveryCents lo dejamos para compat, por ahora 0
     let deliveryCents = 0;
@@ -76,6 +87,27 @@ export class OrdersService {
     if (fulfillment === FulfillmentType.DELIVERY) {
       if (!dto.delivery) {
         throw new BadRequestException('delivery is required for DELIVERY');
+      }
+
+      // ✅ Validación mínima de address (USA)
+      const a = dto.delivery.address;
+      if (!a?.line1?.trim() || a.line1.trim().length < 5) {
+        throw new BadRequestException('Invalid address.line1');
+      }
+      if (!a?.city?.trim() || a.city.trim().length < 2) {
+        throw new BadRequestException('Invalid address.city');
+      }
+      if (!a?.state?.trim() || a.state.trim().length < 2) {
+        throw new BadRequestException('Invalid address.state');
+      }
+      // zipcode típico: 5 o 9 con guión. Permitimos flexible pero mínimo 5.
+      const zip = (a.postalCode ?? '').trim();
+      if (zip.length < 5) {
+        throw new BadRequestException('Invalid address.postalCode (zip)');
+      }
+      const phone = (a.phone ?? '').trim();
+      if (phone.length < 7) {
+        throw new BadRequestException('Invalid address.phone');
       }
 
       const { windowId } = dto.delivery;
@@ -92,41 +124,19 @@ export class OrdersService {
       }
 
       window = { id: foundWindow.id };
-
-      // deliveryCents (legacy) lo dejamos 0
       deliveryCents = 0;
     }
 
-    // ✅ Shipping (DHL simulado) + validaciones mínimas
-    const rawShippingCents =
-      fulfillment === FulfillmentType.DELIVERY ? (dto.shippingCents ?? 0) : 0;
-
-    if (fulfillment === FulfillmentType.DELIVERY) {
-      if (!Number.isInteger(rawShippingCents) || rawShippingCents < 0) {
-        throw new BadRequestException({
-          message: 'Invalid shippingCents',
-          code: 'INVALID_SHIPPING',
-        });
-      }
-    }
-
-    const shippingCents = rawShippingCents;
-
-    const rawProvider =
+    // ✅ Shipping: SIEMPRE se recalcula en backend
+    const shippingCents =
       fulfillment === FulfillmentType.DELIVERY
-        ? (dto.shippingProvider ?? 'DHL_SIMULATED')
-        : null;
+        ? computeShippingCentsByItemsCount(itemsCount)
+        : 0;
 
-    // ✅ por ahora, restringimos a lo que soporta el MVP
-    const allowedProviders = new Set(['DHL_SIMULATED']);
     const shippingProvider =
-      fulfillment === FulfillmentType.DELIVERY
-        ? allowedProviders.has(rawProvider as string)
-          ? (rawProvider as string)
-          : 'DHL_SIMULATED'
-        : null;
+      fulfillment === FulfillmentType.DELIVERY ? 'USPS_SIMULATED' : null;
 
-    // ✅ Total debe incluir shipping
+    // ✅ Total incluye shipping
     const totalCents = subtotalCents + shippingCents;
 
     // 4) Crear todo en transacción
@@ -154,12 +164,14 @@ export class OrdersService {
             ? {
                 address: {
                   create: {
-                    line1: dto.delivery.address.line1,
-                    reference: dto.delivery.address.reference,
-                    city: dto.delivery.address.city,
-                    zone: dto.delivery.address.zone,
-                    postalCode: dto.delivery.address.postalCode,
-                    notes: dto.delivery.address.notes,
+                    line1: dto.delivery.address.line1.trim(),
+                    reference: dto.delivery.address.reference?.trim() || null,
+                    city: dto.delivery.address.city.trim(),
+                    state: dto.delivery.address.state?.trim(), // ✅ NUEVO
+                    postalCode: dto.delivery.address.postalCode?.trim() || null,
+                    phone: dto.delivery.address.phone?.trim(), // ✅ NUEVO
+                    zone: dto.delivery.address.zone?.trim() || null,
+                    notes: dto.delivery.address.notes?.trim() || null,
                     lat: dto.delivery.address.lat,
                     lng: dto.delivery.address.lng,
                   },
@@ -217,9 +229,6 @@ export class OrdersService {
     return { ...order, payments };
   }
 
-  /**
-   * ✅ Recibo: incluye address, delivery.window + shipping
-   */
   async getReceipt(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -250,8 +259,10 @@ export class OrdersService {
           line1: order.address.line1,
           reference: order.address.reference ?? undefined,
           city: order.address.city,
-          zone: order.address.zone ?? undefined,
+          state: (order.address as any).state ?? undefined, // ✅ NUEVO (si ya migraste)
           postalCode: order.address.postalCode ?? undefined,
+          phone: (order.address as any).phone ?? undefined, // ✅ NUEVO
+          zone: order.address.zone ?? undefined,
           notes: order.address.notes ?? undefined,
           lat: order.address.lat ?? undefined,
           lng: order.address.lng ?? undefined,

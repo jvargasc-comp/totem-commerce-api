@@ -42,13 +42,30 @@ export class DeliveryAddressDto {
   @MinLength(2)
   city!: string;
 
+  // ✅ USA: State obligatorio (ej: "FL" o "Florida")
+  @IsString()
+  @MinLength(2)
+  state!: string;
+
+  // ✅ USA: Zipcode obligatorio (5 o 9 digits con guión)
+  @IsString()
+  @Matches(/^\d{5}(-\d{4})?$/, {
+    message: 'postalCode must be US ZIP (12345 or 12345-6789)',
+  })
+  postalCode!: string;
+
+  // ✅ Teléfono del receptor/dirección (flexible)
+  @IsString()
+  @Matches(/^[+]?[\d\s().-]{7,20}$/, {
+    message:
+      'phone must look like a valid phone (7-20 chars: digits/spaces/()+.-)',
+  })
+  phone!: string;
+
+  // (opcional) si aún quieres mantenerlo, por ejemplo "Apt/Suite" o "Neighborhood"
   @IsOptional()
   @IsString()
   zone?: string;
-
-  @IsOptional()
-  @IsString()
-  postalCode?: string;
 
   @IsOptional()
   @IsString()
@@ -84,10 +101,11 @@ export class CreateOrderDto {
   @MinLength(2)
   customerName!: string;
 
-  // Ecuador móvil: 09 + 8 dígitos
+  // ✅ USA phone (flexible). Si quieres estrictamente E.164, dime y lo cierro.
   @IsString()
-  @Matches(/^09\d{8}$/, {
-    message: 'customerPhone must be Ecuador mobile (09XXXXXXXX)',
+  @Matches(/^[+]?[\d\s().-]{7,20}$/, {
+    message:
+      'customerPhone must look like a valid phone (7-20 chars: digits/spaces/()+.-)',
   })
   customerPhone!: string;
 
@@ -110,6 +128,7 @@ export class CreateOrderDto {
   @Type(() => DeliveryInfoDto)
   delivery!: DeliveryInfoDto;
 
+  // sigue opcional: el backend igual lo recalcula
   @IsOptional()
   @IsInt()
   @Min(0)
